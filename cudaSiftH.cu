@@ -399,6 +399,8 @@ double OrientAndExtract(cudaTextureObject_t texObj, SiftData &siftData, float su
 
 double RescalePositions(SiftData &siftData, float scale)
 {
+  if (siftData.numPts<=0)   // a launch with 0 blocks is an error
+    return 0.0;
   dim3 blocks(iDivUp(siftData.numPts, 64));
   dim3 threads(64);
 #ifdef MANAGEDMEM

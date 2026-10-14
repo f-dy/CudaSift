@@ -230,6 +230,23 @@ void TestScaleUp()
   FreeSiftData(scaleUpData);
 }
 
+// Regression test: with scaleUp and no points found, RescalePositions
+// launched 0 blocks, and the launch error made the process exit
+void TestScaleUpNoPoints()
+{
+  std::cout << "\n--- Test: Scale-up extraction with no features ---" << std::endl;
+
+  cv::Mat fimg(240, 320, CV_32FC1, cv::Scalar(128.0f));   // uniform image: no features
+  CudaImage cudaImg;
+  cudaImg.Allocate(fimg.cols, fimg.rows, iAlignUp(fimg.cols, 128), false, NULL, (float *)fimg.data);
+  cudaImg.Download();
+  SiftData siftData;
+  InitSiftData(siftData, 4096, true, true);
+  ExtractSift(siftData, cudaImg, 5, 1.0f, 3.0f, 0.0f, true);
+  CHECK(siftData.numPts == 0, "Scale-up extraction of a uniform image returns 0 features");
+  FreeSiftData(siftData);
+}
+
 int main(int argc, char **argv)
 {
   int devNum = 0;
@@ -246,6 +263,8 @@ int main(int argc, char **argv)
   TestDifferentOctaves();
   TestReproducibility();
   TestScaleUp();
+  // Last: without their fixes, these end the process (exit or stack overflow)
+  TestScaleUpNoPoints();
 
   std::cout << "\n=============================================" << std::endl;
   std::cout << "  Results: " << testsPassed << " passed, " << testsFailed << " failed" << std::endl;
