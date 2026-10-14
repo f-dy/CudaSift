@@ -18,6 +18,7 @@
 
 int testsPassed = 0;
 int testsFailed = 0;
+int testsSkipped = 0;
 
 void CHECK(bool condition, const char *msg)
 {
@@ -28,6 +29,12 @@ void CHECK(bool condition, const char *msg)
     std::cout << "  [FAIL] " << msg << std::endl;
     testsFailed++;
   }
+}
+
+void SKIP(const char *msg)
+{
+  std::cout << "  [SKIP] " << msg << std::endl;
+  testsSkipped++;
 }
 
 void TestBasicExtraction()
@@ -474,6 +481,43 @@ void TestImageOwnership()
   CHECK(reset, "FreeSiftData resets its pointers, so a second call is safe");
 }
 
+// Regression test: after a switch to another GPU, LowPass and
+// ScaleDown skipped the upload of their coefficients to the constant memory of the new device,
+// and ExtractSift found no features there. Needs 2 GPUs: skipped otherwise.
+void TestSecondDevice()
+{
+  std::cout << "\n--- Test: Extraction on a second GPU ---" << std::endl;
+
+  int numDevices = 0, device0 = 0;
+  if (cudaGetDeviceCount(&numDevices) != cudaSuccess || numDevices < 2) {
+    std::cout << "    " << numDevices << " GPU found" << std::endl;
+    SKIP("Same number of features on a second GPU (needs 2 GPUs)");
+    return;
+  }
+  cv::Mat img = cv::imread("data/img1.png", 0);
+  if (img.empty()) return;
+  cv::Mat fimg;
+  img.convertTo(fimg, CV_32FC1);
+
+  cudaGetDevice(&device0);
+  int numPts[2];
+  for (int k = 0; k < 2; k++) {
+    cudaSetDevice(k == 0 ? device0 : (device0 + 1) % numDevices);
+    CudaImage cudaImg;
+    cudaImg.Allocate(fimg.cols, fimg.rows, iAlignUp(fimg.cols, 128), false, NULL, (float *)fimg.data);
+    cudaImg.Download();
+    SiftData siftData;
+    InitSiftData(siftData, 32768, true, true);
+    ExtractSift(siftData, cudaImg, 5, 1.0f, 3.0f, 0.0f, false);
+    numPts[k] = siftData.numPts;
+    FreeSiftData(siftData);
+  }
+  cudaSetDevice(device0);
+  std::cout << "    " << numPts[0] << " features on the first GPU, " << numPts[1] << " on the second" << std::endl;
+  // The bug gives 0 features; different GPU models may round slightly differently
+  CHECK(numPts[0] > 0 && std::abs(numPts[1] - numPts[0]) <= numPts[0]/50, "Same number of features on a second GPU (within 2%)");
+}
+
 int main(int argc, char **argv)
 {
   int devNum = 0;
@@ -494,13 +538,17 @@ int main(int argc, char **argv)
   TestUnpaddedInput();
   TestCopyToTextureFromHost();
   TestImageOwnership();
+  TestSecondDevice();
   // Last: without their fixes, these end the process (exit or stack overflow)
   TestScaleUpNoPoints();
   TestTooManyOctaves();
   TestSmallImages();
 
   std::cout << "\n=============================================" << std::endl;
-  std::cout << "  Results: " << testsPassed << " passed, " << testsFailed << " failed" << std::endl;
+  std::cout << "  Results: " << testsPassed << " passed, " << testsFailed << " failed";
+  if (testsSkipped > 0)
+    std::cout << ", " << testsSkipped << " skipped";
+  std::cout << std::endl;
   std::cout << "=============================================" << std::endl;
 
   return testsFailed > 0 ? 1 : 0;

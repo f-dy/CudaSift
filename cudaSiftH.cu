@@ -338,11 +338,14 @@ void PrintSiftData(SiftData &data)
 double ScaleDown(CudaImage &res, CudaImage &src, float variance)
 {
   static float oldVariance = -1.0f;
+  static int oldDevice = -1;  // constant memory is per device
+  int device;
+  safeCall(cudaGetDevice(&device));
   if (res.d_data==NULL || src.d_data==NULL) {
     printf("ScaleDown: missing data\n");
     return 0.0;
   }
-  if (oldVariance!=variance) {
+  if (oldVariance!=variance || device!=oldDevice) {
     float h_Kernel[5];
     float kernelSum = 0.0f;
     for (int j=0;j<5;j++) {
@@ -353,6 +356,7 @@ double ScaleDown(CudaImage &res, CudaImage &src, float variance)
       h_Kernel[j] /= kernelSum;  
     safeCall(cudaMemcpyToSymbol(d_ScaleDownKernel, h_Kernel, 5*sizeof(float)));
     oldVariance = variance;
+    oldDevice = device;
   }
 #if 0
   dim3 blocks(iDivUp(src.width, SCALEDOWN_W), iDivUp(src.height, SCALEDOWN_H));
@@ -444,7 +448,10 @@ double LowPass(CudaImage &res, CudaImage &src, float scale)
 {
   float kernel[2*LOWPASS_R+1];
   static float oldScale = -1.0f;
-  if (scale!=oldScale) {
+  static int oldDevice = -1;  // constant memory is per device
+  int device;
+  safeCall(cudaGetDevice(&device));
+  if (scale!=oldScale || device!=oldDevice) {
     float kernelSum = 0.0f;
     float ivar2 = 1.0f/(2.0f*scale*scale);
     for (int j=-LOWPASS_R;j<=LOWPASS_R;j++) {
@@ -455,6 +462,7 @@ double LowPass(CudaImage &res, CudaImage &src, float scale)
       kernel[j+LOWPASS_R] /= kernelSum;  
     safeCall(cudaMemcpyToSymbol(d_LowPassKernel, kernel, (2*LOWPASS_R+1)*sizeof(float)));
     oldScale = scale;
+    oldDevice = device;
   }  
   int width = res.width;
   int height = res.height;
