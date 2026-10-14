@@ -280,12 +280,14 @@ void FreeSiftData(SiftData &data)
 {
 #ifdef MANAGEDMEM
   safeCall(cudaFree(data.m_data));
+  data.m_data = NULL;
 #else
   if (data.d_data!=NULL)
     safeCall(cudaFree(data.d_data));
   data.d_data = NULL;
   if (data.h_data!=NULL)
     free(data.h_data);
+  data.h_data = NULL;
 #endif
   data.numPts = 0;
   data.maxPts = 0;

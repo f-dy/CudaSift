@@ -446,6 +446,34 @@ void TestCopyToTextureFromHost()
   CHECK(wrong == 0, "Texture holds the device image");
 }
 
+// Regression test: a second Allocate over a user buffer kept the ownership flag
+// of the first, internal allocation, so the destructor freed the user buffer; FreeSiftData left
+// h_data dangling, so a second FreeSiftData freed it twice
+void TestImageOwnership()
+{
+  std::cout << "\n--- Test: CudaImage and SiftData ownership ---" << std::endl;
+
+  const int w = 1000, h = 700;
+  float *d_user = NULL;
+  cudaMalloc((void **)&d_user, sizeof(float)*w*h);
+  {
+    CudaImage img;
+    img.Allocate(w, h, iAlignUp(w, 128), false);
+    img.Allocate(w, h, w, false, d_user);
+  }
+  cudaError_t err = cudaFree(d_user);   // fails if the destructor already freed it
+  cudaGetLastError();
+  CHECK(err == cudaSuccess, "CudaImage does not free a user buffer given to a second Allocate");
+
+  SiftData data;
+  InitSiftData(data, 1024, true, true);
+  FreeSiftData(data);
+  bool reset = (data.h_data == NULL && data.d_data == NULL);
+  if (reset)
+    FreeSiftData(data);   // must be a no-op
+  CHECK(reset, "FreeSiftData resets its pointers, so a second call is safe");
+}
+
 int main(int argc, char **argv)
 {
   int devNum = 0;
@@ -465,6 +493,7 @@ int main(int argc, char **argv)
   TestScaleDownLastRows();
   TestUnpaddedInput();
   TestCopyToTextureFromHost();
+  TestImageOwnership();
   // Last: without their fixes, these end the process (exit or stack overflow)
   TestScaleUpNoPoints();
   TestTooManyOctaves();
