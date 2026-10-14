@@ -1984,7 +1984,7 @@ __global__ void LowPassBlockOld(float *d_Image, float *d_Result, int width, int 
   }
 }
 
-__global__ void LowPassBlock(float *d_Image, float *d_Result, int width, int pitch, int height)
+__global__ void LowPassBlock(float *d_Image, float *d_Result, int width, int pitch, int height, int newpitch)
 {
   __shared__ float xrows[16][32];          
   const int tx = threadIdx.x;
@@ -2020,7 +2020,7 @@ __global__ void LowPassBlock(float *d_Image, float *d_Result, int width, int pit
     xrows[(ly + 8)%N][tx] = val;
     int ys = yp + l - 4;
     if (xp<width && ys<height && tx<LOWPASS_W)
-      d_Result[ys*pitch + xp] = k[4]*xrows[(ly + 0)%N][tx] +
+      d_Result[ys*newpitch + xp] = k[4]*xrows[(ly + 0)%N][tx] +
 		       k[3]*(xrows[(ly - 1)%N][tx] + xrows[(ly + 1)%N][tx]) +
 		       k[2]*(xrows[(ly - 2)%N][tx] + xrows[(ly + 2)%N][tx]) +
 		       k[1]*(xrows[(ly - 3)%N][tx] + xrows[(ly + 3)%N][tx]) +
@@ -2030,7 +2030,7 @@ __global__ void LowPassBlock(float *d_Image, float *d_Result, int width, int pit
   int ly = LOWPASS_H + ty;
   int ys = yp + LOWPASS_H - 4;
   if (xp<width && ys<height && tx<LOWPASS_W)
-    d_Result[ys*pitch + xp] = k[4]*xrows[(ly + 0)%N][tx] +
+    d_Result[ys*newpitch + xp] = k[4]*xrows[(ly + 0)%N][tx] +
 		     k[3]*(xrows[(ly - 1)%N][tx] + xrows[(ly + 1)%N][tx]) +
 		     k[2]*(xrows[(ly - 2)%N][tx] + xrows[(ly + 2)%N][tx]) +
 		     k[1]*(xrows[(ly - 3)%N][tx] + xrows[(ly + 3)%N][tx]) +

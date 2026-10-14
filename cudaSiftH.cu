@@ -455,15 +455,14 @@ double LowPass(CudaImage &res, CudaImage &src, float scale)
     oldScale = scale;
   }  
   int width = res.width;
-  int pitch = res.pitch;
   int height = res.height;
   dim3 blocks(iDivUp(width, LOWPASS_W), iDivUp(height, LOWPASS_H));
 #if 1
   dim3 threads(LOWPASS_W+2*LOWPASS_R, 4); 
-  LowPassBlock<<<blocks, threads>>>(src.d_data, res.d_data, width, pitch, height);
+  LowPassBlock<<<blocks, threads>>>(src.d_data, res.d_data, width, src.pitch, height, res.pitch);
 #else
   dim3 threads(LOWPASS_W+2*LOWPASS_R, LOWPASS_H);
-  LowPass<<<blocks, threads>>>(src.d_data, res.d_data, width, pitch, height);
+  LowPass<<<blocks, threads>>>(src.d_data, res.d_data, width, res.pitch, height);
 #endif
   checkMsg("LowPass() execution failed\n");
   return 0.0; 

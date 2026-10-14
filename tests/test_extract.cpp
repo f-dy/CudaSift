@@ -14,6 +14,8 @@
 #include "cudaImage.h"
 #include "cudaSift.h"
 
+#include <cuda_runtime.h>
+
 int testsPassed = 0;
 int testsFailed = 0;
 
@@ -356,6 +358,54 @@ void TestSmallImages()
   FreeSiftData(siftData);
 }
 
+// Regression test: LowPass read the source image with the pitch of the
+// destination, so an input image whose pitch differs from the internal one gave garbage features
+void TestUnpaddedInput()
+{
+  std::cout << "\n--- Test: Input image with pitch == width ---" << std::endl;
+
+  cv::Mat img = cv::imread("data/img1.png", 0);
+  if (img.empty()) return;
+  cv::Mat small, fimg;
+  cv::resize(img, small, cv::Size(1000, 700), 0, 0, cv::INTER_AREA);   // width not a multiple of 128
+  small.convertTo(fimg, CV_32FC1);
+  const int w = fimg.cols, h = fimg.rows;
+
+  SiftData data1, data2;
+  InitSiftData(data1, 32768, true, true);
+  InitSiftData(data2, 32768, true, true);
+  float *d_unpadded = NULL;
+  cudaMalloc((void **)&d_unpadded, sizeof(float)*w*h);
+  {
+    CudaImage padded, unpadded;
+    padded.Allocate(w, h, iAlignUp(w, 128), false, NULL, (float *)fimg.data);
+    padded.Download();
+    unpadded.Allocate(w, h, w, false, d_unpadded, (float *)fimg.data);
+    unpadded.Download();
+    ExtractSift(data1, padded, 5, 1.0f, 3.0f, 0.0f, false);
+    ExtractSift(data2, unpadded, 5, 1.0f, 3.0f, 0.0f, false);
+  }
+  cudaFree(d_unpadded);
+
+  int same = 0;
+  for (int i = 0; i < data1.numPts; i++) {
+    SiftPoint &p1 = data1.h_data[i];
+    for (int j = 0; j < data2.numPts; j++) {
+      SiftPoint &p2 = data2.h_data[j];
+      if (fabsf(p1.xpos - p2.xpos) < 0.01f && fabsf(p1.ypos - p2.ypos) < 0.01f && fabsf(p1.scale - p2.scale) < 0.01f) {
+        same++;
+        break;
+      }
+    }
+  }
+  std::cout << "    pitch " << iAlignUp(w, 128) << ": " << data1.numPts << " features, pitch " << w << ": "
+            << data2.numPts << " features, " << same << " in common" << std::endl;
+  CHECK(data1.numPts > 0 && data2.numPts == data1.numPts && same == data1.numPts, "Same features whatever the input pitch");
+
+  FreeSiftData(data1);
+  FreeSiftData(data2);
+}
+
 int main(int argc, char **argv)
 {
   int devNum = 0;
@@ -373,6 +423,7 @@ int main(int argc, char **argv)
   TestReproducibility();
   TestScaleUp();
   TestScaleDownLastRows();
+  TestUnpaddedInput();
   // Last: without their fixes, these end the process (exit or stack overflow)
   TestScaleUpNoPoints();
   TestTooManyOctaves();
