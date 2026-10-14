@@ -247,6 +247,58 @@ void TestScaleUpNoPoints()
   FreeSiftData(siftData);
 }
 
+// Regression test: numOctaves >= 8 wrote past the per-octave arrays
+// (Laplace kernels on the host stack and in constant memory, point counters), which corrupted
+// the results of this call and of later calls. More than 7 octaves now gives the 7-octave result.
+static int ExtractOctaves(SiftData &data, const cv::Mat &fimg, int numOctaves)
+{
+  CudaImage cudaImg;
+  cudaImg.Allocate(fimg.cols, fimg.rows, iAlignUp(fimg.cols, 128), false, NULL, (float *)fimg.data);
+  cudaImg.Download();
+  ExtractSift(data, cudaImg, numOctaves, 1.0f, 3.0f, 0.0f, false);
+  return data.numPts;
+}
+
+// Same positions and scales, in any order (the order of the points is not deterministic)
+static bool SamePoints(const SiftData &a, const SiftData &b)
+{
+  if (a.numPts != b.numPts) return false;
+  std::vector<std::vector<float> > pa, pb;
+  for (int i = 0; i < a.numPts; i++) {
+    pa.push_back({a.h_data[i].xpos, a.h_data[i].ypos, a.h_data[i].scale});
+    pb.push_back({b.h_data[i].xpos, b.h_data[i].ypos, b.h_data[i].scale});
+  }
+  std::sort(pa.begin(), pa.end());
+  std::sort(pb.begin(), pb.end());
+  return pa == pb;
+}
+
+void TestTooManyOctaves()
+{
+  std::cout << "\n--- Test: More than 7 octaves ---" << std::endl;
+
+  cv::Mat img = cv::imread("data/img1.png", 0);
+  if (img.empty()) return;
+  cv::Mat big, fbig, fimg;
+  cv::resize(img, big, cv::Size(4000, 3000));
+  big.convertTo(fbig, CV_32FC1);
+  img.convertTo(fimg, CV_32FC1);
+
+  SiftData data7, data8;
+  InitSiftData(data7, 32768, true, true);
+  InitSiftData(data8, 32768, true, true);
+  ExtractOctaves(data7, fbig, 7);
+  ExtractOctaves(data8, fbig, 8);
+  std::cout << "    4000x3000: " << data7.numPts << " features with 7 octaves, " << data8.numPts << " with 8" << std::endl;
+  CHECK(data7.numPts > 0 && SamePoints(data7, data8), "8 octaves give the 7-octave features (4000x3000)");
+  ExtractOctaves(data8, fimg, 8);
+  ExtractOctaves(data7, fimg, 7);
+  std::cout << "    " << fimg.cols << "x" << fimg.rows << ": " << data7.numPts << " features with 7 octaves, " << data8.numPts << " with 8" << std::endl;
+  CHECK(data7.numPts > 0 && SamePoints(data7, data8), "8 octaves give the 7-octave features after a larger image");
+  FreeSiftData(data7);
+  FreeSiftData(data8);
+}
+
 int main(int argc, char **argv)
 {
   int devNum = 0;
@@ -265,6 +317,7 @@ int main(int argc, char **argv)
   TestScaleUp();
   // Last: without their fixes, these end the process (exit or stack overflow)
   TestScaleUpNoPoints();
+  TestTooManyOctaves();
 
   std::cout << "\n=============================================" << std::endl;
   std::cout << "  Results: " << testsPassed << " passed, " << testsFailed << " failed" << std::endl;

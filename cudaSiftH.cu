@@ -38,9 +38,18 @@ void InitCuda(int devNum)
   printf("  Multiprocessor Count: %d\n\n", prop.multiProcessorCount);
 }
 
+static int CheckNumOctaves(int numOctaves)
+{
+  int num = std::max(1, std::min(numOctaves, MAX_OCTAVES));
+  if (num!=numOctaves)
+    printf("Warning: numOctaves = %d is not supported, using %d (1 to %d)\n", numOctaves, num, MAX_OCTAVES);
+  return num;
+}
+
 float *AllocSiftTempMemory(int width, int height, int numOctaves, bool scaleUp)
 {
   TimerGPU timer(0);
+  numOctaves = CheckNumOctaves(numOctaves);
   const int nd = NUM_SCALES + 3;
   int w = width*(scaleUp ? 2 : 1); 
   int h = height*(scaleUp ? 2 : 1);
@@ -74,9 +83,10 @@ void FreeSiftTempMemory(float *memoryTmp)
 void ExtractSift(SiftData &siftData, CudaImage &img, int numOctaves, double initBlur, float thresh, float lowestScale, bool scaleUp, float *tempMemory) 
 {
   TimerGPU timer(0);
+  numOctaves = CheckNumOctaves(numOctaves);
   unsigned int *d_PointCounterAddr;
   safeCall(cudaGetSymbolAddress((void**)&d_PointCounterAddr, d_PointCounter));
-  safeCall(cudaMemset(d_PointCounterAddr, 0, (8*2+1)*sizeof(int)));
+  safeCall(cudaMemset(d_PointCounterAddr, 0, ((MAX_OCTAVES+1)*2+1)*sizeof(int)));
   safeCall(cudaMemcpyToSymbol(d_MaxNumPoints, &siftData.maxPts, sizeof(int)));
 
   const int nd = NUM_SCALES + 3;
@@ -108,9 +118,9 @@ void ExtractSift(SiftData &siftData, CudaImage &img, int numOctaves, double init
   CudaImage lowImg;
   lowImg.Allocate(width, height, iAlignUp(width, 128), false, memorySub);
   if (!scaleUp) {
-    float kernel[8*12*16];
+    float kernel[(MAX_OCTAVES+1)*12*16];
     PrepareLaplaceKernels(numOctaves, 0.0f, kernel);
-    safeCall(cudaMemcpyToSymbolAsync(d_LaplaceKernel, kernel, 8*12*16*sizeof(float)));
+    safeCall(cudaMemcpyToSymbolAsync(d_LaplaceKernel, kernel, (MAX_OCTAVES+1)*12*16*sizeof(float)));
     LowPass(lowImg, img, max(initBlur, 0.001f));
     TimerGPU timer1(0);
     ExtractSiftLoop(siftData, lowImg, numOctaves, 0.0f, thresh, lowestScale, 1.0f, memoryTmp, memorySub + height*iAlignUp(width, 128));
@@ -123,9 +133,9 @@ void ExtractSift(SiftData &siftData, CudaImage &img, int numOctaves, double init
     TimerGPU timer1(0); 
     ScaleUp(upImg, img);
     LowPass(lowImg, upImg, max(initBlur, 0.001f));
-    float kernel[8*12*16];
+    float kernel[(MAX_OCTAVES+1)*12*16];
     PrepareLaplaceKernels(numOctaves, 0.0f, kernel);
-    safeCall(cudaMemcpyToSymbolAsync(d_LaplaceKernel, kernel, 8*12*16*sizeof(float)));
+    safeCall(cudaMemcpyToSymbolAsync(d_LaplaceKernel, kernel, (MAX_OCTAVES+1)*12*16*sizeof(float)));
     ExtractSiftLoop(siftData, lowImg, numOctaves, 0.0f, thresh, lowestScale*2.0f, 1.0f, memoryTmp, memorySub + height*iAlignUp(width, 128));
     safeCall(cudaMemcpy(&siftData.numPts, &d_PointCounterAddr[2*numOctaves], sizeof(int), cudaMemcpyDeviceToHost)); 
     siftData.numPts = (siftData.numPts<siftData.maxPts ? siftData.numPts : siftData.maxPts);

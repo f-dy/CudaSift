@@ -11,10 +11,10 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 __constant__ int d_MaxNumPoints;
-__device__ unsigned int d_PointCounter[8*2+1];
+__device__ unsigned int d_PointCounter[(MAX_OCTAVES+1)*2+1];
 __constant__ float d_ScaleDownKernel[5]; 
 __constant__ float d_LowPassKernel[2*LOWPASS_R+1]; 
-__constant__ float d_LaplaceKernel[8*12*16]; 
+__constant__ float d_LaplaceKernel[(MAX_OCTAVES+1)*12*16]; 
 
 ///////////////////////////////////////////////////////////////////////////////
 // Lowpass filter and subsample image
