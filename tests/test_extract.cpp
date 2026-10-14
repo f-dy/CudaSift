@@ -299,6 +299,32 @@ void TestTooManyOctaves()
   FreeSiftData(data8);
 }
 
+// Regression test: when the height of an octave is not a multiple of 16,
+// ScaleDown wrote up to 8 rows past the next octave. At 1280x272 with 6 octaves, the writes
+// of the last octave went 40 floats past the end of the temporary memory. The results are
+// unchanged: run this under compute-sanitizer --tool memcheck to see the out-of-bounds write.
+void TestScaleDownLastRows()
+{
+  std::cout << "\n--- Test: Octave heights not multiple of 16 (1280x272, 6 octaves) ---" << std::endl;
+
+  cv::Mat img = cv::imread("data/img1.png", 0);
+  if (img.empty()) return;
+  cv::Mat small, fimg;
+  cv::resize(img, small, cv::Size(1280, 272));
+  small.convertTo(fimg, CV_32FC1);
+
+  CudaImage cudaImg;
+  cudaImg.Allocate(fimg.cols, fimg.rows, iAlignUp(fimg.cols, 128), false, NULL, (float *)fimg.data);
+  cudaImg.Download();
+  SiftData siftData;
+  InitSiftData(siftData, 32768, true, true);
+  float *mem = AllocSiftTempMemory(fimg.cols, fimg.rows, 6, false);
+  ExtractSift(siftData, cudaImg, 6, 1.0f, 3.0f, 0.0f, false, mem);
+  FreeSiftTempMemory(mem);
+  CHECK(siftData.numPts > 0, "Features detected at 1280x272 with 6 octaves");
+  FreeSiftData(siftData);
+}
+
 int main(int argc, char **argv)
 {
   int devNum = 0;
@@ -315,6 +341,7 @@ int main(int argc, char **argv)
   TestDifferentOctaves();
   TestReproducibility();
   TestScaleUp();
+  TestScaleDownLastRows();
   // Last: without their fixes, these end the process (exit or stack overflow)
   TestScaleUpNoPoints();
   TestTooManyOctaves();

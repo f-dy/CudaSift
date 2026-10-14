@@ -105,7 +105,8 @@ __global__ void ScaleDown(float *d_Result, float *d_Data, int width, int pitch, 
     y = (y<0 ? 0 : y);
     y = (y>=height ? height-1 : y);
     yRead[tx] = y*pitch;
-    yWrite[tx] = (yStart + tx - 4)/2 * newpitch;
+    int yw = (yStart + tx - 4)/2;
+    yWrite[tx] = (yw<height/2 ? yw*newpitch : -1);   // -1: below the last output row
   }
   __syncthreads();
   int xRead = xStart + tx - 2;
@@ -119,7 +120,7 @@ __global__ void ScaleDown(float *d_Result, float *d_Data, int width, int pitch, 
       __syncthreads();
       if (tx<maxtx) {
 	brow[tx4] = k0*(inrow[2*tx]+inrow[2*tx+4]) + k1*(inrow[2*tx+1]+inrow[2*tx+3]) + k2*inrow[2*tx+2];
-	if (dy>=4 && !(dy&1))
+	if (dy>=4 && !(dy&1) && yWrite[dy+0]>=0)
 	  d_Result[yWrite[dy+0] + xWrite] = k2*brow[tx2] + k0*(brow[tx0]+brow[tx4]) + k1*(brow[tx1]+brow[tx3]);
       }
       __syncthreads();
@@ -129,7 +130,7 @@ __global__ void ScaleDown(float *d_Result, float *d_Data, int width, int pitch, 
       __syncthreads();
       if (tx<maxtx) {
 	brow[tx0] = k0*(inrow[2*tx]+inrow[2*tx+4]) + k1*(inrow[2*tx+1]+inrow[2*tx+3]) + k2*inrow[2*tx+2];
-	if (dy>=3 && (dy&1))
+	if (dy>=3 && (dy&1) && yWrite[dy+1]>=0)
 	  d_Result[yWrite[dy+1] + xWrite] = k2*brow[tx3] + k0*(brow[tx1]+brow[tx0]) + k1*(brow[tx2]+brow[tx4]);
       }
       __syncthreads();
@@ -139,7 +140,7 @@ __global__ void ScaleDown(float *d_Result, float *d_Data, int width, int pitch, 
       __syncthreads();
       if (tx<maxtx) {
 	brow[tx1] = k0*(inrow[2*tx]+inrow[2*tx+4]) + k1*(inrow[2*tx+1]+inrow[2*tx+3]) + k2*inrow[2*tx+2];
-	if (dy>=2 && !(dy&1))
+	if (dy>=2 && !(dy&1) && yWrite[dy+2]>=0)
 	  d_Result[yWrite[dy+2] + xWrite] = k2*brow[tx4] + k0*(brow[tx2]+brow[tx1]) + k1*(brow[tx3]+brow[tx0]);
       }
       __syncthreads();
@@ -149,7 +150,7 @@ __global__ void ScaleDown(float *d_Result, float *d_Data, int width, int pitch, 
       __syncthreads();
       if (tx<maxtx) {
 	brow[tx2] = k0*(inrow[2*tx]+inrow[2*tx+4]) + k1*(inrow[2*tx+1]+inrow[2*tx+3]) + k2*inrow[2*tx+2];
-	if (dy>=1 && (dy&1))
+	if (dy>=1 && (dy&1) && yWrite[dy+3]>=0)
 	  d_Result[yWrite[dy+3] + xWrite] = k2*brow[tx0] + k0*(brow[tx3]+brow[tx2]) + k1*(brow[tx4]+brow[tx1]);
       }
       __syncthreads();
@@ -159,7 +160,7 @@ __global__ void ScaleDown(float *d_Result, float *d_Data, int width, int pitch, 
       __syncthreads();
       if (tx<dx2 && xWrite<width/2) {
 	brow[tx3] = k0*(inrow[2*tx]+inrow[2*tx+4]) + k1*(inrow[2*tx+1]+inrow[2*tx+3]) + k2*inrow[2*tx+2];
-	if (!(dy&1))
+	if (!(dy&1) && yWrite[dy+4]>=0)
 	  d_Result[yWrite[dy+4] + xWrite] = k2*brow[tx1] + k0*(brow[tx4]+brow[tx3]) + k1*(brow[tx0]+brow[tx2]);
       }
       __syncthreads();
