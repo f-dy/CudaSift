@@ -406,6 +406,46 @@ void TestUnpaddedInput()
   FreeSiftData(data2);
 }
 
+// Regression test: CopyToTexture(dst, true) copied pitch*height floats
+// from the host image, whose rows are width floats, which sheared the rows of the texture
+void TestCopyToTextureFromHost()
+{
+  std::cout << "\n--- Test: CopyToTexture from a host image ---" << std::endl;
+
+  const int w = 1000, h = 700, p = iAlignUp(w, 128);   // width not a multiple of 128
+  std::vector<float> host(p*h, -1.0f);                 // rows of width floats, then unused space
+  for (int y = 0; y < h; y++)
+    for (int x = 0; x < w; x++)
+      host[y*w + x] = (float)((x + 3*y)%251);
+
+  CudaImage img;
+  img.Allocate(w, h, p, false, NULL, host.data());
+  img.InitTexture();
+  img.CopyToTexture(img, true);
+  std::vector<float> back(p*h, 0.0f);
+  cudaMemcpy2DFromArray(back.data(), sizeof(float)*w, (cudaArray *)img.t_data, 0, 0, sizeof(float)*w, h, cudaMemcpyDeviceToHost);
+  int wrong = 0;
+  for (int i = 0; i < w*h; i++)
+    wrong += (back[i] != host[i]);
+  std::cout << "    " << wrong << " of " << w*h << " texture values differ from the image" << std::endl;
+  CHECK(wrong == 0, "Texture holds the host image");
+
+  // The device copy (rows of pitch floats) must give the same texture: clear the
+  // texture with a copy from a zero image, then copy the image from the device
+  std::vector<float> zeros(p*h, 0.0f);
+  CudaImage zero;
+  zero.Allocate(w, h, p, false, NULL, zeros.data());
+  zero.CopyToTexture(img, true);
+  img.Download();
+  img.CopyToTexture(img, false);
+  cudaMemcpy2DFromArray(back.data(), sizeof(float)*w, (cudaArray *)img.t_data, 0, 0, sizeof(float)*w, h, cudaMemcpyDeviceToHost);
+  wrong = 0;
+  for (int i = 0; i < w*h; i++)
+    wrong += (back[i] != host[i]);
+  std::cout << "    " << wrong << " of " << w*h << " texture values differ after a device copy" << std::endl;
+  CHECK(wrong == 0, "Texture holds the device image");
+}
+
 int main(int argc, char **argv)
 {
   int devNum = 0;
@@ -424,6 +464,7 @@ int main(int argc, char **argv)
   TestScaleUp();
   TestScaleDownLastRows();
   TestUnpaddedInput();
+  TestCopyToTextureFromHost();
   // Last: without their fixes, these end the process (exit or stack overflow)
   TestScaleUpNoPoints();
   TestTooManyOctaves();
