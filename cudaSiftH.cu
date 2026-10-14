@@ -46,10 +46,25 @@ static int CheckNumOctaves(int numOctaves)
   return num;
 }
 
+// Each octave halves the image: with more octaves, the smallest ones would be empty (0
+// pixels wide or high), and their kernel launches would fail
+static int LimitOctaves(int width, int height, int numOctaves, bool scaleUp)
+{
+  int w = width*(scaleUp ? 2 : 1);
+  int h = height*(scaleUp ? 2 : 1);
+  int num = 1;
+  while (num<numOctaves && (w>>num)>0 && (h>>num)>0)   // octave num+1 is (w>>num) x (h>>num)
+    num++;
+  if (num<numOctaves)
+    printf("Warning: %d octaves for a %dx%d image%s, using %d\n", numOctaves, width, height, scaleUp ? " (upsampled)" : "", num);
+  return num;
+}
+
 float *AllocSiftTempMemory(int width, int height, int numOctaves, bool scaleUp)
 {
   TimerGPU timer(0);
   numOctaves = CheckNumOctaves(numOctaves);
+  numOctaves = LimitOctaves(width, height, numOctaves, scaleUp);
   const int nd = NUM_SCALES + 3;
   int w = width*(scaleUp ? 2 : 1); 
   int h = height*(scaleUp ? 2 : 1);
@@ -84,6 +99,7 @@ void ExtractSift(SiftData &siftData, CudaImage &img, int numOctaves, double init
 {
   TimerGPU timer(0);
   numOctaves = CheckNumOctaves(numOctaves);
+  numOctaves = LimitOctaves(img.width, img.height, numOctaves, scaleUp);
   unsigned int *d_PointCounterAddr;
   safeCall(cudaGetSymbolAddress((void**)&d_PointCounterAddr, d_PointCounter));
   safeCall(cudaMemset(d_PointCounterAddr, 0, ((MAX_OCTAVES+1)*2+1)*sizeof(int)));

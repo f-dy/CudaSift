@@ -325,6 +325,37 @@ void TestScaleDownLastRows()
   FreeSiftData(siftData);
 }
 
+// Regression test: with min(width, height) < 2^(numOctaves-1), the
+// smallest octaves were empty, their kernel launch had a zero grid, and the process exited.
+// The number of octaves is now reduced. Run under compute-sanitizer --tool memcheck: the
+// 1920x3 and 2x2 cases wrote past the temporary memory without the ScaleDown last-row fix.
+void TestSmallImages()
+{
+  std::cout << "\n--- Test: Images too small for 5 octaves ---" << std::endl;
+
+  cv::Mat img = cv::imread("data/img1.png", 0);
+  if (img.empty()) return;
+  const int sizes[][2] = { {30, 12}, {1920, 10}, {1920, 3}, {2, 2} };
+  SiftData siftData;
+  InitSiftData(siftData, 4096, true, true);
+  int done = 0;
+  for (auto &sz : sizes) {
+    cv::Mat small, fimg;
+    cv::resize(img, small, cv::Size(sz[0], sz[1]), 0, 0, cv::INTER_AREA);
+    small.convertTo(fimg, CV_32FC1);
+    CudaImage cudaImg;
+    cudaImg.Allocate(fimg.cols, fimg.rows, iAlignUp(fimg.cols, 128), false, NULL, (float *)fimg.data);
+    cudaImg.Download();
+    float *mem = AllocSiftTempMemory(fimg.cols, fimg.rows, 5, false);
+    ExtractSift(siftData, cudaImg, 5, 1.0f, 3.0f, 0.0f, false, mem);
+    FreeSiftTempMemory(mem);
+    std::cout << "    " << sz[0] << "x" << sz[1] << ": " << siftData.numPts << " features" << std::endl;
+    done += (siftData.numPts >= 0 && siftData.numPts <= siftData.maxPts);
+  }
+  CHECK(done == 4, "Extraction with 5 octaves returns on 30x12, 1920x10, 1920x3 and 2x2 images");
+  FreeSiftData(siftData);
+}
+
 int main(int argc, char **argv)
 {
   int devNum = 0;
@@ -345,6 +376,7 @@ int main(int argc, char **argv)
   // Last: without their fixes, these end the process (exit or stack overflow)
   TestScaleUpNoPoints();
   TestTooManyOctaves();
+  TestSmallImages();
 
   std::cout << "\n=============================================" << std::endl;
   std::cout << "  Results: " << testsPassed << " passed, " << testsFailed << " failed" << std::endl;
