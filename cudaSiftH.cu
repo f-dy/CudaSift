@@ -356,6 +356,7 @@ double ComputeOrientations(cudaTextureObject_t texObj, CudaImage &src, SiftData 
 {
   dim3 blocks(512); 
 #ifdef MANAGEDMEM
+  dim3 threads(11*11);
   ComputeOrientationsCONST<<<blocks, threads>>>(texObj, siftData.m_data, octave);
 #else
 #if 1
@@ -400,7 +401,11 @@ double RescalePositions(SiftData &siftData, float scale)
 {
   dim3 blocks(iDivUp(siftData.numPts, 64));
   dim3 threads(64);
+#ifdef MANAGEDMEM
+  RescalePositions<<<blocks, threads>>>(siftData.m_data, siftData.numPts, scale);
+#else
   RescalePositions<<<blocks, threads>>>(siftData.d_data, siftData.numPts, scale);
+#endif
   checkMsg("RescapePositions() execution failed\n");
   return 0.0; 
 }
