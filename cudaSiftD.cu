@@ -1379,6 +1379,7 @@ __global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width,
   } 
 
   totbits = Shuffle(totbits, 31);
+  __syncwarp();   // the points written by the other lanes (one warp per block)
   if (tx<totbits) {
     int xpos = points[2*tx + 0];
     int ypos = points[2*tx + 1];
@@ -1520,6 +1521,7 @@ __global__ void FindPointsMulti(float *d_Data0, SiftPoint *d_Sift, int width, in
       }
     }
   }
+  __syncwarp();   // cnt and the points written by the other lanes (one warp per block)
   if (tx<cnt) {
     int xpos = points[3*tx+0];
     int ypos = points[3*tx+1];
