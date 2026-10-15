@@ -7,6 +7,7 @@
 #include <cassert>
 #include <vector>
 #include <algorithm>
+#include <thread>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -518,6 +519,65 @@ void TestSecondDevice()
   CHECK(numPts[0] > 0 && std::abs(numPts[1] - numPts[0]) <= numPts[0]/50, "Same number of features on a second GPU (within 2%)");
 }
 
+// Regression test: concurrent ExtractSift calls on the same device shared the point counters,
+// d_MaxNumPoints and the filter kernels in constant memory, so they returned wrong points
+void TestConcurrentExtraction()
+{
+  std::cout << "\n--- Test: Concurrent extraction from several threads ---" << std::endl;
+
+  cv::Mat img = cv::imread("data/img1.png", 0);
+  if (img.empty()) return;
+  cv::Mat fimg;
+  img.convertTo(fimg, CV_32FC1);
+  CudaImage cudaImg;
+  cudaImg.Allocate(fimg.cols, fimg.rows, iAlignUp(fimg.cols, 128), false, NULL, (float *)fimg.data);
+  cudaImg.Download();
+
+  // Two settings, so that the threads also need different filter kernels
+  const int numOctaves[2] = {5, 4};
+  const float initBlur[2] = {1.0f, 0.5f};
+  auto positions = [](SiftData &data) {
+    std::vector<std::pair<float, float>> pos;
+    for (int i = 0; i < data.numPts; i++)
+      pos.push_back({data.h_data[i].ypos, data.h_data[i].xpos});
+    std::sort(pos.begin(), pos.end());
+    return pos;
+  };
+  std::vector<std::pair<float, float>> ref[2];
+  for (int k = 0; k < 2; k++) {
+    SiftData data;
+    InitSiftData(data, 32768, true, true);
+    ExtractSift(data, cudaImg, numOctaves[k], initBlur[k], 3.0f);
+    ref[k] = positions(data);
+    FreeSiftData(data);
+  }
+
+  const int numThreads = 4, numRuns = 10;
+  int device;
+  cudaGetDevice(&device);
+  int wrong[numThreads] = {0};
+  std::vector<std::thread> threads;
+  for (int t = 0; t < numThreads; t++)
+    threads.emplace_back([&, t]() {
+      cudaSetDevice(device);
+      SiftData data;
+      InitSiftData(data, 32768, true, true);
+      for (int r = 0; r < numRuns; r++) {
+        ExtractSift(data, cudaImg, numOctaves[t%2], initBlur[t%2], 3.0f);
+        wrong[t] += (positions(data) != ref[t%2]);
+      }
+      FreeSiftData(data);
+    });
+  for (auto &th : threads)
+    th.join();
+  int numWrong = 0;
+  for (int t = 0; t < numThreads; t++)
+    numWrong += wrong[t];
+  std::cout << "    " << numThreads << " threads x " << numRuns << " extractions: " << numWrong
+            << " with other points than a single-threaded extraction" << std::endl;
+  CHECK(numWrong == 0, "Concurrent extractions give the same points as single-threaded ones");
+}
+
 int main(int argc, char **argv)
 {
   int devNum = 0;
@@ -539,6 +599,7 @@ int main(int argc, char **argv)
   TestCopyToTextureFromHost();
   TestImageOwnership();
   TestSecondDevice();
+  TestConcurrentExtraction();
   // Last: without their fixes, these end the process (exit or stack overflow)
   TestScaleUpNoPoints();
   TestTooManyOctaves();

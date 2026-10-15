@@ -7,6 +7,7 @@
 #include <cmath>
 #include <iostream>
 #include <algorithm>
+#include <mutex>
 #include "cudautils.h"
 
 #include "cudaImage.h"
@@ -15,6 +16,28 @@
 #include "cudaSiftH.h"
 
 #include "cudaSiftD.cu"
+
+// State of ExtractSift per device. The point counters and the constant memory (filter
+// kernels, d_MaxNumPoints) are per device, so ExtractSift holds the lock of its device for
+// the whole call. The caches of the constant uploads are per device too.
+#define MAX_DEVICES 64
+struct DeviceState {
+  std::mutex lock;
+  float scaleDownVariance = -1.0f;   // last upload to d_ScaleDownKernel
+  float lowPassScale = -1.0f;        // last upload to d_LowPassKernel
+};
+
+static DeviceState &CurrentDeviceState()
+{
+  static DeviceState states[MAX_DEVICES];
+  int device;
+  safeCall(cudaGetDevice(&device));
+  if (device>=MAX_DEVICES) {
+    fprintf(stderr, "CudaSift: device %d not supported (at most %d devices)\n", device, MAX_DEVICES);
+    exit(EXIT_FAILURE);
+  }
+  return states[device];
+}
 
 void InitCuda(int devNum)
 {
@@ -97,6 +120,7 @@ void FreeSiftTempMemory(float *memoryTmp)
 
 void ExtractSift(SiftData &siftData, CudaImage &img, int numOctaves, double initBlur, float thresh, float lowestScale, bool scaleUp, float *tempMemory) 
 {
+  std::lock_guard<std::mutex> lock(CurrentDeviceState().lock);
   TimerGPU timer(0);
   numOctaves = CheckNumOctaves(numOctaves);
   numOctaves = LimitOctaves(img.width, img.height, numOctaves, scaleUp);
@@ -337,15 +361,12 @@ void PrintSiftData(SiftData &data)
 
 double ScaleDown(CudaImage &res, CudaImage &src, float variance)
 {
-  static float oldVariance = -1.0f;
-  static int oldDevice = -1;  // constant memory is per device
-  int device;
-  safeCall(cudaGetDevice(&device));
+  DeviceState &state = CurrentDeviceState();   // under the lock of ExtractSift
   if (res.d_data==NULL || src.d_data==NULL) {
     printf("ScaleDown: missing data\n");
     return 0.0;
   }
-  if (oldVariance!=variance || device!=oldDevice) {
+  if (variance!=state.scaleDownVariance) {
     float h_Kernel[5];
     float kernelSum = 0.0f;
     for (int j=0;j<5;j++) {
@@ -355,8 +376,7 @@ double ScaleDown(CudaImage &res, CudaImage &src, float variance)
     for (int j=0;j<5;j++)
       h_Kernel[j] /= kernelSum;  
     safeCall(cudaMemcpyToSymbol(d_ScaleDownKernel, h_Kernel, 5*sizeof(float)));
-    oldVariance = variance;
-    oldDevice = device;
+    state.scaleDownVariance = variance;
   }
 #if 0
   dim3 blocks(iDivUp(src.width, SCALEDOWN_W), iDivUp(src.height, SCALEDOWN_H));
@@ -447,11 +467,8 @@ double RescalePositions(SiftData &siftData, float scale)
 double LowPass(CudaImage &res, CudaImage &src, float scale)
 {
   float kernel[2*LOWPASS_R+1];
-  static float oldScale = -1.0f;
-  static int oldDevice = -1;  // constant memory is per device
-  int device;
-  safeCall(cudaGetDevice(&device));
-  if (scale!=oldScale || device!=oldDevice) {
+  DeviceState &state = CurrentDeviceState();   // under the lock of ExtractSift
+  if (scale!=state.lowPassScale) {
     float kernelSum = 0.0f;
     float ivar2 = 1.0f/(2.0f*scale*scale);
     for (int j=-LOWPASS_R;j<=LOWPASS_R;j++) {
@@ -461,8 +478,7 @@ double LowPass(CudaImage &res, CudaImage &src, float scale)
     for (int j=-LOWPASS_R;j<=LOWPASS_R;j++) 
       kernel[j+LOWPASS_R] /= kernelSum;  
     safeCall(cudaMemcpyToSymbol(d_LowPassKernel, kernel, (2*LOWPASS_R+1)*sizeof(float)));
-    oldScale = scale;
-    oldDevice = device;
+    state.lowPassScale = scale;
   }  
   int width = res.width;
   int height = res.height;
