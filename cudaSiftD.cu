@@ -342,7 +342,8 @@ __global__ void ExtractSiftDescriptorsCONSTNew(cudaTextureObject_t texObj, SiftP
       float dy = tex2D<float>(texObj, xpos-sina, ypos+cosa) - 
 	tex2D<float>(texObj, xpos+sina, ypos-cosa);
       float grad = gauss[y]*gauss[tx] * __fsqrt_rn(dx*dx + dy*dy);
-      float angf = 4.0f/3.1415f*FastAtan2(dy, dx) + 4.0f;
+      float angf = 4.0f/3.14159265f*FastAtan2(dy, dx) + 4.0f;
+      angf = (angf>=8.0f ? angf - 8.0f : angf);   // atan2 = pi is angle 0, not 8
       
       int hori = (tx + 2)/4 - 1;      // Convert from (tx,y,angle) to bins      
       float horf = (tx - 1.5f)/4.0f - hori;
@@ -454,7 +455,8 @@ __global__ void ExtractSiftDescriptorsCONST(cudaTextureObject_t texObj, SiftPoin
       float dy = tex2D<float>(texObj, xpos-sina, ypos+cosa) - 
 	tex2D<float>(texObj, xpos+sina, ypos-cosa);
       float grad = gauss[y]*gauss[tx] * sqrtf(dx*dx + dy*dy);
-      float angf = 4.0f/3.1415f*atan2f(dy, dx) + 4.0f;
+      float angf = 4.0f/3.14159265f*atan2f(dy, dx) + 4.0f;
+      angf = (angf>=8.0f ? angf - 8.0f : angf);   // atan2 = pi is angle 0, not 8
       
       int hori = (tx + 2)/4 - 1;      // Convert from (tx,y,angle) to bins      
       float horf = (tx - 1.5f)/4.0f - hori;

@@ -259,6 +259,54 @@ void TestSubpixelRefinement()
   FreeSiftData(data);
 }
 
+// Regression test: gradients at an angle of exactly +pi relative to
+// the keypoint orientation got angle bin 8, i.e. bin 0 of the next spatial cell, while those
+// at -pi got bin 0 of their own cell. On a horizontal ramp with blobs centred on integer rows,
+// keypoints have an orientation of exactly 180 degrees, many gradients are at +pi, and the
+// image is symmetric about each keypoint row, so each descriptor must be symmetric: cell row
+// v and bin b equal cell row 3-v and bin -b.
+void TestDescriptorAnglePi()
+{
+  std::cout << "\n--- Test: Descriptor symmetry for gradients at +-pi ---" << std::endl;
+
+  const int W = 1024, H = 600;
+  cv::Mat fimg(H, W, CV_32FC1);
+  for (int y = 0; y < H; y++)
+    for (int x = 0; x < W; x++)
+      fimg.at<float>(y, x) = 4.0f*x;
+  const float sigma[4] = {2.5f, 3.0f, 4.0f, 5.0f};
+  for (int r = 0; r < 4; r++)
+    for (int k = 0; k < 6; k++) {
+      float bx = 120 + 150*k + 0.13f*k, by = 90 + 140*r, s = sigma[r];
+      for (int y = (int)by - 60; y <= (int)by + 60; y++)
+        for (int x = (int)bx - 60; x <= (int)bx + 60; x++)
+          fimg.at<float>(y, x) += 100.0f*expf(-0.5f*((x - bx)*(x - bx) + (y - by)*(y - by))/(s*s));
+    }
+  CudaImage cudaImg;
+  cudaImg.Allocate(W, H, iAlignUp(W, 128), false, NULL, (float *)fimg.data);
+  cudaImg.Download();
+  SiftData data;
+  InitSiftData(data, 4096, true, true);
+  ExtractSift(data, cudaImg, 5, 1.0f, 3.0f, 0.0f, false);
+
+  int num = 0;
+  float maxAsym = 0.0f;
+  for (int i = 0; i < data.numPts; i++) {
+    const float *d = data.h_data[i].data;
+    if (fabsf(data.h_data[i].orientation - 180.0f) > 0.01f)
+      continue;
+    num++;
+    for (int v = 0; v < 4; v++)
+      for (int h = 0; h < 4; h++)
+        for (int b = 0; b < 8; b++)
+          maxAsym = fmaxf(maxAsym, fabsf(d[(4*v + h)*8 + b] - d[(4*(3 - v) + h)*8 + (8 - b)%8]));
+  }
+  std::cout << "    " << num << " of " << data.numPts << " keypoints at 180 degrees, max asymmetry " << maxAsym << std::endl;
+  CHECK(num >= 20 && maxAsym < 0.005f, "Symmetric descriptors for a symmetric image");
+
+  FreeSiftData(data);
+}
+
 void TestScaleUp()
 {
   std::cout << "\n--- Test: Scale-Up Mode ---" << std::endl;
@@ -308,6 +356,7 @@ int main(int argc, char **argv)
   TestDifferentOctaves();
   TestReproducibility();
   TestSubpixelRefinement();
+  TestDescriptorAnglePi();
   TestScaleUp();
 
   std::cout << "\n=============================================" << std::endl;
