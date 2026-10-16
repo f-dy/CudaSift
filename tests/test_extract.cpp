@@ -307,6 +307,38 @@ void TestDescriptorAnglePi()
   FreeSiftData(data);
 }
 
+// Regression test: a descriptor sample with a zero gradient
+// made the whole descriptor constant (all 128 values 1/sqrt(128))
+void TestZeroGradientDescriptors()
+{
+  std::cout << "\n--- Test: Descriptors next to flat regions ---" << std::endl;
+
+  cv::Mat img = cv::imread("data/img1.png", 0);
+  if (img.empty()) return;
+  cv::Mat bordered, fimg;
+  cv::copyMakeBorder(img, bordered, 100, 100, 100, 100, cv::BORDER_CONSTANT, 0);
+  bordered.convertTo(fimg, CV_32FC1);
+
+  CudaImage cudaImg;
+  cudaImg.Allocate(fimg.cols, fimg.rows, iAlignUp(fimg.cols, 128), false, NULL, (float *)fimg.data);
+  cudaImg.Download();
+  SiftData siftData;
+  InitSiftData(siftData, 32768, true, true);
+  ExtractSift(siftData, cudaImg, 5, 1.0f, 3.0f, 0.0f, false);
+
+  int constant = 0;
+  for (int i = 0; i < siftData.numPts; i++) {
+    const float *d = siftData.h_data[i].data;
+    bool same = true;
+    for (int j = 1; j < 128 && same; j++)
+      same = (d[j] == d[0]);
+    constant += same;
+  }
+  std::cout << "    " << siftData.numPts << " features, " << constant << " constant descriptors" << std::endl;
+  CHECK(siftData.numPts > 0 && constant == 0, "No constant descriptors next to a black border");
+  FreeSiftData(siftData);
+}
+
 void TestScaleUp()
 {
   std::cout << "\n--- Test: Scale-Up Mode ---" << std::endl;
@@ -357,6 +389,7 @@ int main(int argc, char **argv)
   TestReproducibility();
   TestSubpixelRefinement();
   TestDescriptorAnglePi();
+  TestZeroGradientDescriptors();
   TestScaleUp();
 
   std::cout << "\n=============================================" << std::endl;

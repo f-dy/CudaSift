@@ -296,7 +296,8 @@ __device__ float FastAtan2(float y, float x)
 {
   float absx = abs(x);
   float absy = abs(y);
-  float a = __fdiv_rn(min(absx, absy),  max(absx, absy));
+  float maxxy = max(absx, absy);
+  float a = (maxxy>0.0f ? __fdiv_rn(min(absx, absy), maxxy) : 0.0f);  // FastAtan2(0, 0) = 0, not NaN
   float s = a*a;
   float r = ((-0.0464964749f*s + 0.15931422f)*s - 0.327622764f)*s*a + a;
   r = (absy>absx ? 1.57079637f - r : r);
