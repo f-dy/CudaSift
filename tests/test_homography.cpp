@@ -10,6 +10,8 @@
 
 #include "cudaImage.h"
 #include "cudaSift.h"
+#include <vector>
+#include <cuda_runtime.h>
 
 int ImproveHomography(SiftData &data, float *homography, int numLoops, float minScore, float maxAmbiguity, float thresh);
 
@@ -181,6 +183,50 @@ void TestScale()
   FreeSiftData(siftData2);
 }
 
+// Regression test: TestHomographies also tested the padding of the
+// coordinate arrays (rounded up to a multiple of 16), so numMatches could exceed numPts.
+// The padding is never written: it is fresh memory (zeros) or, with the memory released
+// just before, 100.0f values. Both give (x,y)->(x,y) pairs, inliers of the identity.
+void TestHomographyPadding()
+{
+  std::cout << "\n--- Test: Homography inliers with numPts not a multiple of 16 ---" << std::endl;
+
+  const int numPts = 20, numPtsUp = 32;
+  float *prime = NULL;
+  std::vector<float> hundreds(4*numPtsUp, 100.0f);
+  cudaMalloc((void **)&prime, sizeof(float)*4*numPtsUp);   // same size as FindHomography's coordinates
+  cudaMemcpy(prime, hundreds.data(), sizeof(float)*4*numPtsUp, cudaMemcpyHostToDevice);
+  cudaFree(prime);
+
+  SiftData data;
+  InitSiftData(data, numPts, true, true);
+#ifdef MANAGEDMEM
+  SiftPoint *pts = data.m_data;
+#else
+  SiftPoint *pts = data.h_data;
+#endif
+  for (int i = 0; i < numPts; i++) {
+    SiftPoint &pt = pts[i];
+    pt.xpos = pt.match_xpos = 50.0f + 37.0f*(i%5) + 3.0f*i;   // perfect matches under the identity
+    pt.ypos = pt.match_ypos = 40.0f + 29.0f*(i/5) + 2.0f*(i%3);
+    pt.score = 1.0f;
+    pt.ambiguity = 0.0f;
+  }
+  data.numPts = numPts;
+#ifndef MANAGEDMEM
+  cudaMemcpy(data.d_data, data.h_data, sizeof(SiftPoint)*numPts, cudaMemcpyHostToDevice);
+#endif
+
+  srand(1);
+  float homography[9];
+  int numMatches = 0;
+  FindHomography(data, homography, &numMatches, 1024, 0.0f, 0.8f, 3.0f);
+  std::cout << "    " << numPts << " points, " << numMatches << " matches" << std::endl;
+  CHECK(numMatches == numPts, "numMatches == numPts for perfect matches");
+
+  FreeSiftData(data);
+}
+
 void TestPGMImages()
 {
   std::cout << "\n--- Test: PGM Image Pair ---" << std::endl;
@@ -243,6 +289,7 @@ int main(int argc, char **argv)
   TestTranslation();
   TestRotation();
   TestScale();
+  TestHomographyPadding();
   TestPGMImages();
 
   std::cout << "\n=============================================" << std::endl;

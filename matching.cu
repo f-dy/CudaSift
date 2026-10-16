@@ -954,7 +954,7 @@ __global__ void ComputeHomographies(float *coord, int *randPts, float *homo,
 #define TESTHOMO_LOOPS 16 // number of loops per block,  alt.  8, 16 
 
 __global__ void TestHomographies(float *d_coord, float *d_homo, 
-  int *d_counts, int numPts, float thresh2)
+  int *d_counts, int numPts, int numPtsUp, float thresh2)
 {
   __shared__ float homo[8*TESTHOMO_LOOPS];
   __shared__ int cnts[TESTHOMO_TESTS*TESTHOMO_LOOPS];
@@ -970,10 +970,10 @@ __global__ void TestHomographies(float *d_coord, float *d_homo,
     a[i] = homo[ty*8+i];
   int cnt = 0;
   for (int i=tx;i<numPts;i+=TESTHOMO_TESTS) {
-    float x1 = d_coord[i+0*numPts];
-    float y1 = d_coord[i+1*numPts];
-    float x2 = d_coord[i+2*numPts];
-    float y2 = d_coord[i+3*numPts];
+    float x1 = d_coord[i+0*numPtsUp];
+    float y1 = d_coord[i+1*numPtsUp];
+    float x2 = d_coord[i+2*numPtsUp];
+    float y2 = d_coord[i+3*numPtsUp];
     float nomx = __fmul_rz(a[0],x1) + __fmul_rz(a[1],y1) + a[2];
     float nomy = __fmul_rz(a[3],x1) + __fmul_rz(a[4],y1) + a[5];
     float deno = __fmul_rz(a[6],x1) + __fmul_rz(a[7],y1) + 1.0f;
@@ -1064,7 +1064,7 @@ double FindHomography(SiftData &data, float *homography, int *numMatches, int nu
     checkMsg("ComputeHomographies() execution failed\n");
     dim3 blocks(1, numLoops/TESTHOMO_LOOPS);
     dim3 threads(TESTHOMO_TESTS, TESTHOMO_LOOPS);
-    TestHomographies<<<blocks, threads>>>(d_coord, d_homo, d_randPts, numPtsUp, thresh*thresh);
+    TestHomographies<<<blocks, threads>>>(d_coord, d_homo, d_randPts, numPts, numPtsUp, thresh*thresh);
     safeCall(cudaDeviceSynchronize());
     checkMsg("TestHomographies() execution failed\n");
     safeCall(cudaMemcpy(h_randPts, d_randPts, sizeof(int)*numLoops, cudaMemcpyDeviceToHost));
