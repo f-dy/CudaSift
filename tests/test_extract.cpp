@@ -197,6 +197,68 @@ void TestReproducibility()
   FreeSiftData(siftData2);
 }
 
+// Regression test: sign errors in the sub-pixel refinement of the DoG
+// extrema moved tilted, elongated blobs away from their centres and refined the scale the wrong way
+void TestSubpixelRefinement()
+{
+  std::cout << "\n--- Test: Sub-pixel refinement on synthetic blobs ---" << std::endl;
+
+  // Row 0-1: round blobs with sigma from 2 to 4; row 2-3: 4x2 blobs rotated by 0 to 168.75 degrees
+  const int W = 1024, H = 512, N = 32;
+  const float fr[12][2] = {{0.1f,0.3f},{0.4f,0.8f},{0.7f,0.2f},{0.25f,0.55f},{0.9f,0.45f},{0.5f,0.0f},
+                           {0.0f,0.5f},{0.35f,0.15f},{0.65f,0.95f},{0.8f,0.7f},{0.15f,0.85f},{0.55f,0.35f}};
+  float bx[N], by[N], bs[N];
+  cv::Mat fimg(H, W, CV_32FC1, cv::Scalar(0.0f));
+  for (int k = 0; k < N; k++) {
+    bx[k] = 64 + 128*(k%8) + fr[k%12][0];
+    by[k] = 64 + 128*(k/8) + fr[k%12][1];
+    float s1 = 4.0f, s2 = 2.0f, ang = 11.25f*(k%16)*3.14159265f/180;
+    if (k < 16)
+      s1 = s2 = 2.0f*powf(2.0f, k/16.0f);
+    bs[k] = s1;
+    float ca = cosf(ang), sa = sinf(ang);
+    for (int y = (int)by[k] - 40; y <= (int)by[k] + 40; y++)
+      for (int x = (int)bx[k] - 40; x <= (int)bx[k] + 40; x++) {
+        float u = ca*(x - bx[k]) + sa*(y - by[k]), v = -sa*(x - bx[k]) + ca*(y - by[k]);
+        fimg.at<float>(y, x) += 100.0f*expf(-0.5f*(u*u/(s1*s1) + v*v/(s2*s2)));
+      }
+  }
+  CudaImage cudaImg;
+  cudaImg.Allocate(W, H, iAlignUp(W, 128), false, NULL, (float *)fimg.data);
+  cudaImg.Download();
+  SiftData data;
+  InitSiftData(data, 4096, true, true);
+  ExtractSift(data, cudaImg, 5, 1.0f, 3.0f, 0.0f, false);
+
+  // For each blob, the keypoint of largest scale within 1 pixel of its centre
+  float err[N], scale[N];
+  for (int k = 0; k < N; k++) {
+    err[k] = 1.0f;
+    scale[k] = 0.0f;
+    for (int i = 0; i < data.numPts; i++) {
+      SiftPoint &p = data.h_data[i];
+      float e = sqrtf((p.xpos - bx[k])*(p.xpos - bx[k]) + (p.ypos - by[k])*(p.ypos - by[k]));
+      if (e < 1.0f && p.scale > scale[k]) {
+        scale[k] = p.scale;
+        err[k] = e;
+      }
+    }
+  }
+  int notIncreasing = 0;
+  for (int k = 1; k < 16; k++)
+    notIncreasing += (scale[k] <= scale[k-1]);
+  float meanErr = 0.0f;
+  for (int k = 16; k < N; k++)
+    meanErr += err[k]/16;
+  std::cout << "    round blobs, sigma " << bs[0] << " to " << bs[15] << ": scales " << scale[0] << " to "
+            << scale[15] << ", " << notIncreasing << " of 15 steps not increasing" << std::endl;
+  std::cout << "    tilted 4x2 blobs: mean position error " << meanErr << " px" << std::endl;
+  CHECK(notIncreasing == 0, "Keypoint scale increases with the blob size");
+  CHECK(meanErr < 0.15f, "Tilted elongated blobs located within 0.15 px on average");
+
+  FreeSiftData(data);
+}
+
 void TestScaleUp()
 {
   std::cout << "\n--- Test: Scale-Up Mode ---" << std::endl;
@@ -245,6 +307,7 @@ int main(int argc, char **argv)
   TestDifferentThresholds();
   TestDifferentOctaves();
   TestReproducibility();
+  TestSubpixelRefinement();
   TestScaleUp();
 
   std::cout << "\n=============================================" << std::endl;

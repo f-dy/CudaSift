@@ -1382,9 +1382,10 @@ __global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width,
     int ptr = xpos + (ypos + (scale + 1)*height)*pitch;
     float val = d_Data0[ptr];
     float *data1 = &d_Data0[ptr];
+    // Negated Hessian (dxx = -d2/dx2, dxy = -d2/dxdy, ...): the offset is its inverse times the gradient
     float dxx = 2.0f*val - data1[-1] - data1[1];
     float dyy = 2.0f*val - data1[-pitch] - data1[pitch];
-    float dxy = 0.25f*(data1[+pitch+1] + data1[-pitch-1] - data1[-pitch+1] - data1[+pitch-1]);
+    float dxy = 0.25f*(data1[-pitch+1] + data1[+pitch-1] - data1[+pitch+1] - data1[-pitch-1]);
     float tra = dxx + dyy;
     float det = dxx*dyy - dxy*dxy;
     if (tra*tra<edgeLimit*det) {
@@ -1393,10 +1394,10 @@ __global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width,
       float dy = 0.5f*(data1[pitch] - data1[-pitch]); 
       float *data0 = d_Data0 + ptr - height*pitch;
       float *data2 = d_Data0 + ptr + height*pitch;
-      float ds = 0.5f*(data0[0] - data2[0]); 
+      float ds = 0.5f*(data2[0] - data0[0]); 
       float dss = 2.0f*val - data2[0] - data0[0];
-      float dxs = 0.25f*(data2[1] + data0[-1] - data0[1] - data2[-1]);
-      float dys = 0.25f*(data2[pitch] + data0[-pitch] - data2[-pitch] - data0[pitch]);
+      float dxs = 0.25f*(data0[1] + data2[-1] - data2[1] - data0[-1]);
+      float dys = 0.25f*(data0[pitch] + data2[-pitch] - data2[pitch] - data0[-pitch]);
       float idxx = dyy*dss - dys*dys;
       float idxy = dys*dxs - dxy*dss;   
       float idxs = dxy*dys - dyy*dxs;
@@ -1524,9 +1525,10 @@ __global__ void FindPointsMulti(float *d_Data0, SiftPoint *d_Sift, int width, in
     int ptr = xpos + (ypos + (scale+1)*height)*pitch;
     float val = d_Data0[ptr];
     float *data1 = &d_Data0[ptr];
+    // Negated Hessian (dxx = -d2/dx2, dxy = -d2/dxdy, ...): the offset is its inverse times the gradient
     float dxx = 2.0f*val - data1[-1] - data1[1];
     float dyy = 2.0f*val - data1[-pitch] - data1[pitch];
-    float dxy = 0.25f*(data1[+pitch+1] + data1[-pitch-1] - data1[-pitch+1] - data1[+pitch-1]);
+    float dxy = 0.25f*(data1[-pitch+1] + data1[+pitch-1] - data1[+pitch+1] - data1[-pitch-1]);
     float tra = dxx + dyy;
     float det = dxx*dyy - dxy*dxy;
     if (tra*tra<edgeLimit*det) {
@@ -1535,10 +1537,10 @@ __global__ void FindPointsMulti(float *d_Data0, SiftPoint *d_Sift, int width, in
       float dy = 0.5f*(data1[pitch] - data1[-pitch]); 
       float *data0 = d_Data0 + ptr - height*pitch;
       float *data2 = d_Data0 + ptr + height*pitch;
-      float ds = 0.5f*(data0[0] - data2[0]); 
+      float ds = 0.5f*(data2[0] - data0[0]); 
       float dss = 2.0f*val - data2[0] - data0[0];
-      float dxs = 0.25f*(data2[1] + data0[-1] - data0[1] - data2[-1]);
-      float dys = 0.25f*(data2[pitch] + data0[-pitch] - data2[-pitch] - data0[pitch]);
+      float dxs = 0.25f*(data0[1] + data2[-1] - data2[1] - data0[-1]);
+      float dys = 0.25f*(data0[pitch] + data2[-pitch] - data2[pitch] - data0[-pitch]);
       float idxx = dyy*dss - dys*dys;
       float idxy = dys*dxs - dxy*dss;   
       float idxs = dxy*dys - dyy*dxs;
