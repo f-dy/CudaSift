@@ -1041,6 +1041,21 @@ double FindHomography(SiftData &data, float *homography, int *numMatches, int nu
   free(h_scores);
   free(h_ambiguities);
   if (numValid>=8) {
+    // Coordinates of the valid points only, so that the inliers are counted among the
+    // matches the hypotheses are sampled from
+    int numValidUp = iDivUp(numValid, 16)*16;
+    float *h_coord = (float *)malloc(4*sizeof(float)*numPts);
+    float *h_valid = (float *)calloc(4*numValidUp, sizeof(float));
+    safeCall(cudaMemcpy2D(&h_coord[0*numPts], szFl, &d_sift[0].xpos, szPt, szFl, numPts, cudaMemcpyDeviceToHost));
+    safeCall(cudaMemcpy2D(&h_coord[1*numPts], szFl, &d_sift[0].ypos, szPt, szFl, numPts, cudaMemcpyDeviceToHost));
+    safeCall(cudaMemcpy2D(&h_coord[2*numPts], szFl, &d_sift[0].match_xpos, szPt, szFl, numPts, cudaMemcpyDeviceToHost));
+    safeCall(cudaMemcpy2D(&h_coord[3*numPts], szFl, &d_sift[0].match_ypos, szPt, szFl, numPts, cudaMemcpyDeviceToHost));
+    for (int c=0;c<4;c++)
+      for (int i=0;i<numValid;i++)
+        h_valid[i+c*numValidUp] = h_coord[validPts[i]+c*numPts];
+    safeCall(cudaMemcpy(d_coord, h_valid, 4*sizeof(float)*numValidUp, cudaMemcpyHostToDevice));
+    free(h_coord);
+    free(h_valid);
     for (int i=0;i<numLoops;i++) {
       int p1 = rand() % numValid;
       int p2 = rand() % numValid;
@@ -1049,22 +1064,18 @@ double FindHomography(SiftData &data, float *homography, int *numMatches, int nu
       while (p2==p1) p2 = rand() % numValid;
       while (p3==p1 || p3==p2) p3 = rand() % numValid;
       while (p4==p1 || p4==p2 || p4==p3) p4 = rand() % numValid;
-      h_randPts[i+0*numLoops] = validPts[p1];
-      h_randPts[i+1*numLoops] = validPts[p2];
-      h_randPts[i+2*numLoops] = validPts[p3];
-      h_randPts[i+3*numLoops] = validPts[p4];
+      h_randPts[i+0*numLoops] = p1;
+      h_randPts[i+1*numLoops] = p2;
+      h_randPts[i+2*numLoops] = p3;
+      h_randPts[i+3*numLoops] = p4;
     }
     safeCall(cudaMemcpy(d_randPts, h_randPts, randSize, cudaMemcpyHostToDevice));
-    safeCall(cudaMemcpy2D(&d_coord[0*numPtsUp], szFl, &d_sift[0].xpos, szPt, szFl, numPts, cudaMemcpyDeviceToDevice));
-    safeCall(cudaMemcpy2D(&d_coord[1*numPtsUp], szFl, &d_sift[0].ypos, szPt, szFl, numPts, cudaMemcpyDeviceToDevice));
-    safeCall(cudaMemcpy2D(&d_coord[2*numPtsUp], szFl, &d_sift[0].match_xpos, szPt, szFl, numPts, cudaMemcpyDeviceToDevice));
-    safeCall(cudaMemcpy2D(&d_coord[3*numPtsUp], szFl, &d_sift[0].match_ypos, szPt, szFl, numPts, cudaMemcpyDeviceToDevice));
-    ComputeHomographies<<<numLoops/16, 16>>>(d_coord, d_randPts, d_homo, numPtsUp);
+    ComputeHomographies<<<numLoops/16, 16>>>(d_coord, d_randPts, d_homo, numValidUp);
     safeCall(cudaDeviceSynchronize());
     checkMsg("ComputeHomographies() execution failed\n");
     dim3 blocks(1, numLoops/TESTHOMO_LOOPS);
     dim3 threads(TESTHOMO_TESTS, TESTHOMO_LOOPS);
-    TestHomographies<<<blocks, threads>>>(d_coord, d_homo, d_randPts, numPts, numPtsUp, thresh*thresh);
+    TestHomographies<<<blocks, threads>>>(d_coord, d_homo, d_randPts, numValid, numValidUp, thresh*thresh);
     safeCall(cudaDeviceSynchronize());
     checkMsg("TestHomographies() execution failed\n");
     safeCall(cudaMemcpy(h_randPts, d_randPts, sizeof(int)*numLoops, cudaMemcpyDeviceToHost));

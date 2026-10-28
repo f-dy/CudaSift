@@ -227,6 +227,50 @@ void TestHomographyPadding()
   FreeSiftData(data);
 }
 
+// Regression test: TestHomographies counted the inliers among all the points, not only
+// among those FindHomography samples from (score > minScore, ambiguity < maxAmbiguity).
+// 20 valid matches under the identity, 10 valid matches under a translation, and 40
+// ambiguous matches under the same translation: the translation won with 50 inliers.
+void TestHomographyValidOnly()
+{
+  std::cout << "\n--- Test: Homography inliers among the valid matches only ---" << std::endl;
+
+  const int numIdentity = 20, numShifted = 10, numAmbiguous = 40;
+  const int numPts = numIdentity + numShifted + numAmbiguous;
+  const float dx = 30.0f, dy = 20.0f;
+  SiftData data;
+  InitSiftData(data, numPts, true, true);
+#ifdef MANAGEDMEM
+  SiftPoint *pts = data.m_data;
+#else
+  SiftPoint *pts = data.h_data;
+#endif
+  for (int i = 0; i < numPts; i++) {
+    SiftPoint &pt = pts[i];
+    pt.xpos = 50.0f + 37.0f*(i%7) + 3.0f*(i/7);
+    pt.ypos = 40.0f + 29.0f*(i/7) + 2.0f*(i%3);
+    bool shifted = (i >= numIdentity);
+    pt.match_xpos = pt.xpos + (shifted ? dx : 0.0f);
+    pt.match_ypos = pt.ypos + (shifted ? dy : 0.0f);
+    pt.score = 1.0f;
+    pt.ambiguity = (i < numIdentity + numShifted ? 0.0f : 0.95f);
+  }
+  data.numPts = numPts;
+#ifndef MANAGEDMEM
+  cudaMemcpy(data.d_data, data.h_data, sizeof(SiftPoint)*numPts, cudaMemcpyHostToDevice);
+#endif
+
+  srand(1);
+  float homography[9];
+  int numMatches = 0;
+  FindHomography(data, homography, &numMatches, 1024, 0.0f, 0.8f, 3.0f);
+  std::cout << "    " << numMatches << " matches, translation " << homography[2] << ", " << homography[5] << std::endl;
+  CHECK(numMatches == numIdentity, "numMatches == number of valid identity matches");
+  CHECK(std::fabs(homography[2]) < 1.0f && std::fabs(homography[5]) < 1.0f, "homography is the identity");
+
+  FreeSiftData(data);
+}
+
 void TestPGMImages()
 {
   std::cout << "\n--- Test: PGM Image Pair ---" << std::endl;
@@ -290,6 +334,7 @@ int main(int argc, char **argv)
   TestRotation();
   TestScale();
   TestHomographyPadding();
+  TestHomographyValidOnly();
   TestPGMImages();
 
   std::cout << "\n=============================================" << std::endl;
