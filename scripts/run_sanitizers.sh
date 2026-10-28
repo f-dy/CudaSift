@@ -44,10 +44,10 @@ run() {   # run <tool> <test> <expected summary> [options]; skipped if the test 
   fi
 }
 
-for test in test_extract test_match test_homography; do
+for test in test_extract test_match test_homography test_homography_gpu; do
   run memcheck ${test} "ERROR SUMMARY: 0 errors" --leak-check full
 done
-for test in test_extract test_match; do
+for test in test_extract test_match test_homography_gpu; do
   run racecheck ${test} "RACECHECK SUMMARY: 0 hazards"
 done
 

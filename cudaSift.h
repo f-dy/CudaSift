@@ -44,4 +44,17 @@ double MatchSiftData(SiftData &data1, SiftData &data2);
 // numMatches is the number of inliers among them
 double FindHomography(SiftData &data,  float *homography, int *numMatches, int numLoops = 1000, float minScore = 0.85f, float maxAmbiguity = 0.95f, float thresh = 5.0f);
 
+#define CUDASIFT_HAS_GPU_HOMOGRAPHY 1   // FindHomographySeeded, FindHomographyGPU, ImproveHomographyGPU
+
+// As FindHomography, with a seeded random number generator instead of rand(), so that the
+// samples are reproducible and the same on all backends
+double FindHomographySeeded(SiftData &data, float *homography, int *numMatches, int numLoops = 1000, float minScore = 0.85f, float maxAmbiguity = 0.95f, float thresh = 5.0f, unsigned int seed = 42);
+// As FindHomographySeeded, but entirely on the GPU, and with the valid matches sorted by
+// coordinates first, so that the result does not depend on the order of the points. Same
+// result as FindHomographySeeded when the points are in that order.
+double FindHomographyGPU(SiftData &data, float *homography, int *numMatches, int numLoops = 1000, float minScore = 0.85f, float maxAmbiguity = 0.95f, float thresh = 5.0f, unsigned int seed = 42);
+// As ImproveHomography (geomFuncs.cpp), on the GPU; numFit: number of inliers. With fewer
+// than 4 inliers, or if the equations are degenerate, the homography is kept
+double ImproveHomographyGPU(SiftData &data, float *homography, int *numFit, int numLoops = 5, float minScore = 0.0f, float maxAmbiguity = 0.80f, float thresh = 3.0f);
+
 #endif

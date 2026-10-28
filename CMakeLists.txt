@@ -49,6 +49,7 @@ add_library(cudasift_lib STATIC
   cudaSiftD.h
   cudaSift.h
   cudautils.h
+  cudaSiftRandom.h
   matching.cu
   geomFuncs.cpp
 )
@@ -90,6 +91,7 @@ if(BUILD_TESTS)
     tests/test_extract.cpp
     tests/test_match.cpp
     tests/test_homography.cpp
+    tests/test_homography_gpu.cpp
     PROPERTIES LANGUAGE CUDA
   )
   add_executable(benchmark tests/benchmark.cpp)
@@ -103,6 +105,9 @@ if(BUILD_TESTS)
 
   add_executable(test_homography tests/test_homography.cpp)
   target_link_libraries(test_homography PRIVATE cudasift_lib)
+
+  add_executable(test_homography_gpu tests/test_homography_gpu.cpp)
+  target_link_libraries(test_homography_gpu PRIVATE cudasift_lib)
 endif()
 
 # ---- Install ----
