@@ -271,6 +271,46 @@ void TestHomographyValidOnly()
   FreeSiftData(data);
 }
 
+// Regression test: FindHomography kept hypotheses from samples whose triangles change
+// orientation between the images, which no camera viewing a plane produces. 20 matches
+// under the identity and 30 under a mirror: the mirror won with 30 inliers.
+void TestHomographyOrientation()
+{
+  std::cout << "\n--- Test: Homography samples with consistent orientation ---" << std::endl;
+
+  const int numIdentity = 20, numMirrored = 30, numPts = numIdentity + numMirrored;
+  SiftData data;
+  InitSiftData(data, numPts, true, true);
+#ifdef MANAGEDMEM
+  SiftPoint *pts = data.m_data;
+#else
+  SiftPoint *pts = data.h_data;
+#endif
+  for (int i = 0; i < numPts; i++) {
+    SiftPoint &pt = pts[i];
+    pt.xpos = 50.0f + 37.0f*(i%7) + 3.0f*(i/7);
+    pt.ypos = 40.0f + 29.0f*(i/7) + 2.0f*(i%3);
+    pt.match_xpos = (i < numIdentity ? pt.xpos : 400.0f - pt.xpos);
+    pt.match_ypos = pt.ypos;
+    pt.score = 1.0f;
+    pt.ambiguity = 0.0f;
+  }
+  data.numPts = numPts;
+#ifndef MANAGEDMEM
+  cudaMemcpy(data.d_data, data.h_data, sizeof(SiftPoint)*numPts, cudaMemcpyHostToDevice);
+#endif
+
+  srand(1);
+  float homography[9];
+  int numMatches = 0;
+  FindHomography(data, homography, &numMatches, 1024, 0.0f, 0.8f, 3.0f);
+  std::cout << "    " << numMatches << " matches, H[0] " << homography[0] << std::endl;
+  CHECK(numMatches == numIdentity, "numMatches == number of identity matches");
+  CHECK(std::fabs(homography[0] - 1.0f) < 0.01f, "homography is the identity, not the mirror");
+
+  FreeSiftData(data);
+}
+
 void TestPGMImages()
 {
   std::cout << "\n--- Test: PGM Image Pair ---" << std::endl;
@@ -335,6 +375,7 @@ int main(int argc, char **argv)
   TestScale();
   TestHomographyPadding();
   TestHomographyValidOnly();
+  TestHomographyOrientation();
   TestPGMImages();
 
   std::cout << "\n=============================================" << std::endl;

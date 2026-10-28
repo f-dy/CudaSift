@@ -1000,6 +1000,25 @@ __global__ void TestHomographies(float *d_coord, float *d_homo,
 
 //================= Host matching functions =====================//
 
+// Whether the 4 matches of a RANSAC sample give the triangles they form the same
+// orientation in both images, as checked by OpenCV's findHomography, COLMAP and PoseLib.
+// A homography through a sample that fails is orientation-reversing or degenerate:
+// it can't come from a camera viewing a plane, so the sample gives no hypothesis.
+// coord holds x1, y1, x2, y2 with the given stride.
+static bool SameOrientation(const float *coord, int stride, const int *sample)
+{
+  static const int tri[4][3] = {{0, 1, 2}, {0, 1, 3}, {2, 3, 0}, {2, 3, 1}};
+  const float *x1 = coord, *y1 = coord + stride, *x2 = coord + 2*stride, *y2 = coord + 3*stride;
+  for (int t=0;t<4;t++) {
+    const int a = sample[tri[t][0]], b = sample[tri[t][1]], c = sample[tri[t][2]];
+    double d1 = ((double)x1[b] - x1[a])*((double)y1[c] - y1[a]) - ((double)y1[b] - y1[a])*((double)x1[c] - x1[a]);
+    double d2 = ((double)x2[b] - x2[a])*((double)y2[c] - y2[a]) - ((double)y2[b] - y2[a])*((double)x2[c] - x2[a]);
+    if (d1*d2<0.0)
+      return false;
+  }
+  return true;
+}
+
 double FindHomography(SiftData &data, float *homography, int *numMatches, int numLoops, float minScore, float maxAmbiguity, float thresh)
 {
   *numMatches = 0;
@@ -1055,7 +1074,7 @@ double FindHomography(SiftData &data, float *homography, int *numMatches, int nu
         h_valid[i+c*numValidUp] = h_coord[validPts[i]+c*numPts];
     safeCall(cudaMemcpy(d_coord, h_valid, 4*sizeof(float)*numValidUp, cudaMemcpyHostToDevice));
     free(h_coord);
-    free(h_valid);
+    bool *h_sameOrientation = (bool *)malloc(sizeof(bool)*numLoops);
     for (int i=0;i<numLoops;i++) {
       int p1 = rand() % numValid;
       int p2 = rand() % numValid;
@@ -1068,7 +1087,10 @@ double FindHomography(SiftData &data, float *homography, int *numMatches, int nu
       h_randPts[i+1*numLoops] = p2;
       h_randPts[i+2*numLoops] = p3;
       h_randPts[i+3*numLoops] = p4;
+      const int sample[4] = {p1, p2, p3, p4};
+      h_sameOrientation[i] = SameOrientation(h_valid, numValidUp, sample);
     }
+    free(h_valid);
     safeCall(cudaMemcpy(d_randPts, h_randPts, randSize, cudaMemcpyHostToDevice));
     ComputeHomographies<<<numLoops/16, 16>>>(d_coord, d_randPts, d_homo, numValidUp);
     safeCall(cudaDeviceSynchronize());
@@ -1081,12 +1103,15 @@ double FindHomography(SiftData &data, float *homography, int *numMatches, int nu
     safeCall(cudaMemcpy(h_randPts, d_randPts, sizeof(int)*numLoops, cudaMemcpyDeviceToHost));
     int maxIndex = -1, maxCount = -1;
     for (int i=0;i<numLoops;i++) 
-      if (h_randPts[i]>maxCount) {
+      if (h_sameOrientation[i] && h_randPts[i]>maxCount) {
 	maxCount = h_randPts[i];
 	maxIndex = i;
       }
-    *numMatches = maxCount;
-    safeCall(cudaMemcpy2D(homography, szFl, &d_homo[maxIndex], sizeof(float)*numLoops, szFl, 8, cudaMemcpyDeviceToHost));
+    free(h_sameOrientation);
+    if (maxIndex>=0) {
+      *numMatches = maxCount;
+      safeCall(cudaMemcpy2D(homography, szFl, &d_homo[maxIndex], sizeof(float)*numLoops, szFl, 8, cudaMemcpyDeviceToHost));
+    }
   }
   free(validPts);
   free(h_randPts);
