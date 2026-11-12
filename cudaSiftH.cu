@@ -372,7 +372,7 @@ void ExtractSift(SiftData &siftData, CudaImage &img, int numOctaves, double init
     LowPass(lowImg, img, max(initBlur, 0.001f));
     TimerGPU timer1(0);
     ExtractSiftLoop(siftData, lowImg, numOctaves, 0.0f, thresh, lowestScale, 1.0f, memoryTmp, memorySub + height*iAlignUp(width, 128));
-    d_count = CountExtractedPoints(siftData, &d_PointCounterAddr[2*numOctaves], batched);
+    d_count = CountExtractedPoints(siftData, &d_PointCounterAddr[2*numOctaves+1], batched);
     if (!batched)
       printf("SIFT extraction time =        %.2f ms %d\n", timer1.read(), siftData.numPts);
   } else {
@@ -387,7 +387,7 @@ void ExtractSift(SiftData &siftData, CudaImage &img, int numOctaves, double init
       safeCall(cudaMemcpyToSymbolAsync(d_LaplaceKernel, kernel, (MAX_OCTAVES+1)*12*16*sizeof(float)));
     }
     ExtractSiftLoop(siftData, lowImg, numOctaves, 0.0f, thresh, lowestScale*2.0f, 1.0f, memoryTmp, memorySub + height*iAlignUp(width, 128));
-    d_count = CountExtractedPoints(siftData, &d_PointCounterAddr[2*numOctaves], batched);
+    d_count = CountExtractedPoints(siftData, &d_PointCounterAddr[2*numOctaves+1], batched);
     RescalePositions(siftData, 0.5f, d_count);
     if (!batched)
       printf("SIFT extraction time =        %.2f ms\n", timer1.read());
